@@ -1,0 +1,135 @@
+#!/usr/bin/env sh
+
+SCRIPT=$0
+DAEMON_NAME=syncd
+WATCH_DIR="$PWD"
+SYNCD_CONFDIR="$WATCH_DIR/.syncd"
+SYNCD_CONFFILE="$SYNCD_CONFDIR/config"
+LOGFILE="$SYNCD_CONFDIR/syncd.log"
+PIDFILE="$SYNCD_CONFDIR/syncd.pid"
+
+if [ ! -f $SYNCD_CONFFILE ]; then
+    echo "Config file not found!"
+    # exit 1
+else
+	source $SYNCD_CONFFILE
+fi	
+
+function include_conffile() 
+{
+	if [ ! -f $SYNCD_CONFFILE ]; then
+    	echo "Config file not found!"
+    	# exit 1
+    else
+    	source $SYNCD_CONFFILE
+	fi	
+}
+
+function init()
+{
+	if [ -f $SYNCD_CONFFILE ]; then
+		echo "Already inited"
+		exit 0
+	fi
+
+	if [ ! -d "$SYNCD_CONFDIR" ]; then
+    	mkdir -p $SYNCD_CONFDIR
+	fi
+	
+	echo "SSH_HOST=$([ -z "$1" ] && echo "" || echo $1)" >> $SYNCD_CONFFILE
+	echo "SSH_USER=$([ -z "$3" ] && echo "\$USER" || echo $2)" >> $SYNCD_CONFFILE
+	echo "REMOTE_TARGETDIR=$([ -z "$2" ] && echo "src/$(basename $WATCH_DIR)" || echo $2)" >> $SYNCD_CONFFILE
+
+	touch "$SYNCD_CONFDIR/rsync_exclude"
+	touch "$SYNCD_CONFDIR/rsync_include" 
+	touch "$SYNCD_CONFDIR/watch_exclude" 
+	touch "$SYNCD_CONFDIR/watch_include"
+
+	echo "Init complete, conf params:"
+	cat $SYNCD_CONFFILE
+}
+
+# see https://gist.github.com/KartikTalwar/4393116 about used options
+RSYNC_OPTS="-HxDv"
+RSYNC_OPTS="$RSYNC_OPTS --archive --cvs-exclude"
+RSYNC_OPTS="$RSYNC_OPTS --numeric-ids"
+RSYNC_OPTS="$RSYNC_OPTS --links --perms --times"
+#RSYNC_OPTS="$RSYNC_OPTS -e 'ssh -T -o Compression=no -x'"
+RSYNC_OPTS="$RSYNC_OPTS --exclude=$SYNCD_CONFDIR"
+RSYNC_OPTS="$RSYNC_OPTS --exclude=*.log --exclude=*.sock --exclude=*.pid"
+
+EXCLUDE_OPTS="\
+    --exclude=.git* \
+    --exclude=.hg* \
+    --exclude=node_modules/* \
+    --exclude=libs/ \
+    --exclude=.npm \
+    --exclude=.bower \
+    --exclude=**/.enb/tmp"
+
+WATCH_EXCLUDE="\.(idea|git) $EXCLUDE_OPTS"
+
+COMMAND="rsync $RSYNC_OPTS $EXCLUDE_OPTS $WATCH_DIR/ $SSH_USER@$SSH_HOST:$REMOTE_TARGETDIR"
+
+case $1 in
+
+start)
+	if [ -e "$PIDFILE" ] && ( ps -p `cat $PIDFILE` > /dev/null ); then
+        echo "$DAEMON_NAME is already running."
+        exit 1;
+    fi
+    fswatch -o -0 -e $WATCH_EXCLUDE $WATCH_DIR | xargs -0 -n 1 -I {} $COMMAND > $LOGFILE &
+    echo "$!" > $PIDFILE
+    echo "Starting $DAEMON_NAME... "
+;;
+
+stop)
+	if [ ! -e ${PIDFILE} ] || ( ! ps -p `cat $PIDFILE` > /dev/null ); then
+        echo "$DAEMON_NAME is not running."
+        exit 1;
+    fi
+    echo "Stopping $DAEMON_NAME..."
+    PID=`cat $PIDFILE`
+    CHILD_PIDS=`pgrep -P $PID`
+    kill $PID 2> /dev/null || echo "Killing process failed, not running?"
+    # Wait half a second and Kill child PIDs to be sure they are gone.
+    sleep 0.5
+    kill $CHILD_PIDS 2> /dev/null
+    rm $PIDFILE
+;;
+
+restart)
+	$SCRIPT stop
+    $SCRIPT start
+;;
+
+run)
+	sh -c "$COMMAND"
+;;
+
+status)
+	if [ -e "$PIDFILE" ] && ( ps -p `cat $PIDFILE` > /dev/null ); then
+        echo "$DAEMON_NAME is running"
+    else
+        echo "$DAEMON_NAME is not running"
+    fi
+;;
+
+log)
+;;
+
+init)
+	init $2 $3 $4
+;;
+
+clean)
+	rm -rf $SYNCD_CONFDIR
+	echo "Clean conf $SYNCD_CONFDIR"
+;;
+
+*)
+    echo "Usage: $0 {start|stop|restart|status|run|log|init [host] [remote_dir] [user]|clean}"
+    exit 3
+;;
+
+esac

@@ -7,23 +7,10 @@ SYNCD_CONFDIR="$WATCH_DIR/.syncd"
 SYNCD_CONFFILE="$SYNCD_CONFDIR/config"
 LOGFILE="$SYNCD_CONFDIR/syncd.log"
 PIDFILE="$SYNCD_CONFDIR/syncd.pid"
-
-if [ ! -f $SYNCD_CONFFILE ]; then
-    echo "Config file not found!"
-    # exit 1
-else
-	source $SYNCD_CONFFILE
-fi	
-
-function include_conffile() 
-{
-	if [ ! -f $SYNCD_CONFFILE ]; then
-    	echo "Config file not found!"
-    	# exit 1
-    else
-    	source $SYNCD_CONFFILE
-	fi	
-}
+RSYNC_EXCLUDE_FILE="$SYNCD_CONFDIR/rsync_exclude"
+RSYNC_INCLUDE_FILE="$SYNCD_CONFDIR/rsync_include"
+WATCH_EXCLUDE_FILE="$SYNCD_CONFDIR/watch_exclude"
+WATCH_INCLUDE_FILE="$SYNCD_CONFDIR/watch_include"
 
 function init()
 {
@@ -40,14 +27,21 @@ function init()
 	echo "SSH_USER=$([ -z "$3" ] && echo "\$USER" || echo $2)" >> $SYNCD_CONFFILE
 	echo "REMOTE_TARGETDIR=$([ -z "$2" ] && echo "src/$(basename $WATCH_DIR)" || echo $2)" >> $SYNCD_CONFFILE
 
-	touch "$SYNCD_CONFDIR/rsync_exclude"
-	touch "$SYNCD_CONFDIR/rsync_include" 
-	touch "$SYNCD_CONFDIR/watch_exclude" 
-	touch "$SYNCD_CONFDIR/watch_include"
+	echo ".syncd\n.git*\n.hg*\n.npm\n.bower" > $RSYNC_EXCLUDE_FILE
+	# touch "$RSYNC_INCLUDE_FILE"
+	# touch "$WATCH_EXCLUDE_FILE"
+	# touch "$WATCH_INCLUDE_FILE"
 
 	echo "Init complete, conf params:"
 	cat $SYNCD_CONFFILE
 }
+
+if [ ! -f $SYNCD_CONFFILE ]; then
+    echo "Config file not found!"
+    # exit 1
+else
+    source $SYNCD_CONFFILE
+fi
 
 # see https://gist.github.com/KartikTalwar/4393116 about used options
 RSYNC_OPTS="-HxDv"
@@ -58,14 +52,12 @@ RSYNC_OPTS="$RSYNC_OPTS --links --perms --times"
 RSYNC_OPTS="$RSYNC_OPTS --exclude=$SYNCD_CONFDIR"
 RSYNC_OPTS="$RSYNC_OPTS --exclude=*.log --exclude=*.sock --exclude=*.pid"
 
-EXCLUDE_OPTS="\
-    --exclude=.git* \
-    --exclude=.hg* \
-    --exclude=node_modules/* \
-    --exclude=libs/ \
-    --exclude=.npm \
-    --exclude=.bower \
-    --exclude=**/.enb/tmp"
+EXCLUDE_OPTS=""
+if [ -f $RSYNC_EXCLUDE_FILE ]; then
+    while read line; do
+        EXCLUDE_OPTS="$EXCLUDE_OPTS --exclude=$line"
+    done < $RSYNC_EXCLUDE_FILE
+fi
 
 WATCH_EXCLUDE="\.(idea|git) $EXCLUDE_OPTS"
 

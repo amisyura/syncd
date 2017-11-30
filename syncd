@@ -108,6 +108,7 @@ status)
 ;;
 
 log)
+	tail -f $LOGFILE
 ;;
 
 init)
@@ -125,3 +126,4 @@ clean)
 ;;
 
 esac
+
